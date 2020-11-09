@@ -198,9 +198,24 @@ def plot_cmd(data, samples):
     plt.tight_layout()
     fig.savefig(f'cmd_a_opt_{nstars}.pdf', rasterized=True)
 
+def get_transforms(model):
+
+    def sample_fn(z, logpz=None):
+        if logpz is not None:
+            return model(z, logpz, reverse=True)
+        else:
+            return model(z, reverse=True)
+
+    def density_fn(x, logpx=None):
+        if logpx is not None:
+            return model(x, logpx, reverse=False)
+        else:
+            return model(x, reverse=False)
+
+    return sample_fn, density_fn
 
 if __name__ =='__main__':
-    nstars = 335
+    nstars = 30
     data = np.load(f'optvalues_{nstars}_linearA.npy', allow_pickle=True)
 
     columns = data.dtype.names
@@ -220,13 +235,29 @@ if __name__ =='__main__':
     model.eval()
     model.requires_grad_(False)
     #hack to get sample working, log_probs needs to be called first
-    foo = torch.zeros(1, 5, device=device)
+    #foo = torch.zeros(1, 5, device=device)
 
-    model.log_probs(foo)
-    ss = pickle.load(open('transform_cyle_gauss.pkl', 'rb')) #'transform.pkl','rb'))
+    sample_fn, density_fn = get_transforms(model)
+
+    #model.log_probs(foo)
+    numdatasamples = 1000000
+    ss = pickle.load(open(f'transform_nsamples{numdatasamples}.pkl','rb'))
+    #ss = pickle.load(open('transform_cyle_gauss.pkl', 'rb')) #'transform.pkl','rb'))
     nsamples = 100000
-    samples = ss.inverse_transform(model.sample(num_samples=nsamples).detach().numpy())
-
+    try:
+        samples = pickle.load(open(f'nfsamples_nsamples{numdatasamples}.pkl', 'rb'))
+    except FileNotFoundError:  
+        npts=500
+        memory = 100
+        z = torch.randn(npts * npts, 5).type(torch.float64).to(device)
+        zk = []
+        inds = torch.arange(0, z.shape[0]).to(torch.int64)
+        for ii in torch.split(inds, int(memory**2)):
+            zk.append(sample_fn(z[ii]))
+        zk = torch.cat(zk, 0).detach().numpy()
+        #samples = ss.inverse_transform(model.sample(num_samples=nsamples).detach().numpy())
+        samples = ss.inverse_transform(zk)
+        pickle.dump(samples, open(f'nfsamples_nsamples{nsamplesdata}.pkl','wb'))
     plot_cmd(data, samples)
 
     np.random.seed(222)

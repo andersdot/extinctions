@@ -9,7 +9,7 @@ from torch.optim import Adam
 from numpy import random
 rs = random.RandomState(0)
 import pandas as pd
-from distributed_model_flows import init_flow_model
+#from distributed_model_flows import init_flow_model
 
 import matplotlib.pyplot as plt
 import matplotlib as mpl 
@@ -33,9 +33,9 @@ from torch.multiprocessing import Pool, set_start_method, freeze_support
 from torch.distributions import constraints, normal, half_normal
 from torch.distributions.utils import broadcast_all
 #from pyro.distributions import TorchDistribution
-
+#
 #import arviz as az
-import make_cmdlogp_plot
+#import make_cmdlogp_plot
 
 import corner
 
@@ -128,14 +128,16 @@ model = gen_model(scale=scale, fraction=fraction)
 model.eval()
 model.requires_grad_(False)
 #hack to get sample working, log_probs needs to be called first
-foo = torch.zeros(1, 5, device=device)
+#0foo = torch.zeros(1, 5, device=device)
 
-model.log_probs(foo)
+#model.log_probs(foo)
 
-from pyro.nn.module import to_pyro_module_
-to_pyro_module_(model)
+#from pyro.nn.module import to_pyro_module_
+#to_pyro_module_(model)
 model.requires_grad_(False)
-ss = pickle.load(open('transform_cycle_nflows.pkl', 'rb'))
+numdatasamples = 1000000
+ss = pickle.load(open(f'transform_nsamples{numdatasamples}.pkl','rb'))
+
 #ss = pickle.load(open(f'transform_cycle_gauss_scale{scale}_frac{fraction}.pkl', 'rb')) #'transform.pkl','rb'))
 #cmd_logp, xx_cmd, yy_cmd = make_cmdlogp_plot.make()
 #
@@ -191,7 +193,7 @@ if __name__ == '__main__':
     M0 = np.median(fullpop[absmag_keys])
 
 
-    nstars = 30
+    nstars = 335
     #nstars = 50
     arr = {'A_true': np.zeros(nstars),
            'd_true': np.zeros(nstars), 

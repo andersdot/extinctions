@@ -9,7 +9,7 @@ from torch.optim import Adam
 from numpy import random
 rs = random.RandomState(0)
 import pandas as pd
-from distributed_model_flows import init_flow_model
+#from distributed_model_flows import init_flow_model
 
 import matplotlib.pyplot as plt
 import matplotlib as mpl 
@@ -20,36 +20,83 @@ from tqdm import tqdm
 from sklearn.preprocessing import StandardScaler
 
 from hessian import hessian 
-import pickle
-import pyro
-from pyro.distributions import Beta, Binomial, HalfCauchy, Normal, Pareto, Uniform, LogNormal, HalfNormal, MultivariateNormal
-from pyro.distributions.util import scalar_like
-from pyro.infer import MCMC, NUTS, Predictive
-from pyro.infer.mcmc.util import initialize_model, summary
-from pyro.util import ignore_experimental_warning
+import pickle as pkl
+#import pyro
+#from pyro.distributions import Beta, Binomial, HalfCauchy, Normal, Pareto, Uniform, LogNormal, HalfNormal, MultivariateNormal
+#from pyro.distributions.util import scalar_like
+#from pyro.infer import MCMC, NUTS, Predictive
+#from pyro.infer.mcmc.util import initialize_model, summary
+#from pyro.util import ignore_experimental_warning
 
 from torch.multiprocessing import Pool, set_start_method, freeze_support
 
 from torch.distributions import constraints, normal, half_normal, log_normal, uniform 
 from torch.distributions.utils import broadcast_all
-from pyro.distributions import TorchDistribution
+#from pyro.distributions import TorchDistribution
 
-import arviz as az
-import make_cmdlogp_plot
+#import arviz as az
+#import make_cmdlogp_plot
 
 from scipy.stats import norm
 
 import corner
+import lib.toy_data as toy_data
+import lib.utils as utils
+from lib.visualize_flow import visualize_transform
+import lib.layers.odefunc as odefunc
 
-from nflows.flows.base import Flow
-from nflows.distributions.normal import StandardNormal
-from nflows.transforms.base import CompositeTransform
-from nflows.transforms.autoregressive import MaskedAffineAutoregressiveTransform
-from nflows.transforms.permutations import ReversePermutation
+from train_misc import standard_normal_logprob
+from train_misc import set_cnf_options, count_nfe, count_parameters, count_total_time
+from train_misc import add_spectral_norm, spectral_norm_power_iteration
+from train_misc import create_regularization_fns, get_regularization, append_regularization_to_log
+from train_misc import build_model_tabular
+#from nflows.flows.base import Flow
+#from nflows.distributions.normal import StandardNormal
+#from nflows.transforms.base import CompositeTransform
+#from nflows.transforms.autoregressive import MaskedAffineAutoregressiveTransform
+#from nflows.transforms.permutations import ReversePermutation
+
+def calc_logpx(model, x):
+    # load data
+    #x = toy_data.inf_train_gen(args.data, batch_size=batch_size)
+    #x = torch.from_numpy(x).type(torch.float32).to(device)
+    zero = torch.zeros(x.shape[0], 1).to(x)
+
+    # transform to z
+    z, delta_logp = model(x, zero)
+
+    # compute log q(z)
+    logpz = standard_normal_logprob(z).sum(1, keepdim=True)
+
+    logpx = logpz - delta_logp
+    return logpx
+
+def get_transforms(model):
+
+    def sample_fn(z, logpz=None):
+        if logpz is not None:
+            return model(z, logpz, reverse=True)
+        else:
+            return model(z, reverse=True)
+
+    def density_fn(x, logpx=None):
+        if logpx is not None:
+            return model(x, logpx, reverse=False)
+        else:
+            return model(x, reverse=False)
+
+    return sample_fn, density_fn
 
 def gen_model(scale=10, fraction=0.5):
     #build normalizing flow model from previous fit
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu") 
+    args = pkl.load(open('args.pkl', 'rb'))
+    regularization_fns, regularization_coeffs = create_regularization_fns(args)
+    model = build_model_tabular(args, 5, regularization_fns).to(device)#.cuda()
+    if args.spectral_norm: add_spectral_norm(model)
+    set_cnf_options(args, model)
+    model.load_state_dict( torch.load('model_10000.pt'))
+ 
     #if torch.cuda.is_available():
     #    model = init_flow_model(
     #        num_inputs=5,
@@ -59,24 +106,24 @@ def gen_model(scale=10, fraction=0.5):
     #        num_inputs=5,
     #        num_cond_inputs=None) #len(cond_cols)).cuda()
     
-    num_layers = 5
-    base_dist = StandardNormal(shape=(5,))
-    transforms = []
-    for _ in range(num_layers):
-        transforms.append(ReversePermutation(features=5))
-        transforms.append(MaskedAffineAutoregressiveTransform(features=5, 
-                                                          hidden_features=4))
-    transform = CompositeTransform(transforms)
-    model = Flow(transform, base_dist).to(device)
+    #num_layers = 5
+    #base_dist = StandardNormal(shape=(5,))
+    #transforms = []
+    #for _ in range(num_layers):
+    #    transforms.append(ReversePermutation(features=5))
+    #    transforms.append(MaskedAffineAutoregressiveTransform(features=5, 
+    #                                                      hidden_features=4))
+    #transform = CompositeTransform(transforms)
+    #model = Flow(transform, base_dist).to(device)
 
     #model.cpu()
-    filename = 'checkpoint11434epochs_cycle.pth'
+    #filename = 'checkpoint11434epochs_cycle.pth'
     #filename = f'gauss_scale{scale}_frac{fraction}/checkpoint200000epochs_cycle_gauss.pth'
     #filename = 'gauss_scale10_frac0.25/checkpoint100000epochs_cycle_gauss.pth'
     #filename = 'checkpoint_epoch{}.pth'.format(95000)
-    data = torch.load(filename, map_location=device)
-    breakpoint()
-    model.load_state_dict(data['model'])
+    #data = torch.load(filename, map_location=device)
+    #breakpoint()
+    #model.load_state_dict(data['model'])
     #if torch.cuda.is_available():
     #    data = torch.load(filename)
     #    model.load_state_dict(data['model'])
@@ -174,7 +221,7 @@ class ObjectiveOpt(Objective):
 
         # Query the model:
         model.eval()
-        logprob = model(pdata) #.cpu().detach()#.numpy()
+        logprob = calc_logpx(model,pdata) #.cpu().detach()#.numpy()
         if torch.isnan(logprob): 
             breakpoint()
             logprob=-1*torch.Tensor([float('Inf')]) #torch.Tensor([[-100]])
@@ -270,7 +317,7 @@ class ObjectiveOpt(Objective):
         #print(lnp_c, lnp_m, lnp_varpi, lnp_A, lnp_d, lnp_beta_bp, lnp_beta_rp, lnp_beta_g, lnp_Mc)
         return logp
 
-
+"""
 class NFdist(TorchDistribution):
     arg_constraints = {'M': constraints.real, 'c': constraints.real}
     support = constraints.real
@@ -284,7 +331,7 @@ class NFdist(TorchDistribution):
         super().__init__(batch_shape, event_shape, validate_args)
 
     def __call__(self, *args, **kwargs):
-            """
+            ""
             Samples a random value (just an alias for ``.sample(*args, **kwargs)``).
 
             For tensor distributions, the returned tensor should have the same ``.shape`` as the
@@ -292,7 +339,7 @@ class NFdist(TorchDistribution):
 
             :return: A random value.
             :rtype: torch.Tensor
-            """
+            ""
             return self.sample(*args, **kwargs)
 
     @torch.no_grad()
@@ -307,7 +354,7 @@ class NFdist(TorchDistribution):
         return lp
         #if torch.isnan(lp): lp=-torch.inf #torch.Tensor([[-8]])
         #return torch.clamp(lp, min=-10000)
-
+"""
 def plot_marginal(ax, i, theta, sigma, c='black', lw=2, zorder=0):
     xmin, xmax = ax.get_xlim()
     xx = np.linspace(xmin, xmax, 100)
@@ -556,12 +603,12 @@ model = gen_model(scale=scale, fraction=fraction)
 model.eval()
 model.requires_grad_(False)
 #hack to get sample working, log_probs needs to be called first
-foo = torch.zeros(1, 5, device=device)
+#foo = torch.zeros(1, 5, device=device)
 
-model.log_probs(foo)
+#model.log_probs(foo)
 
-from pyro.nn.module import to_pyro_module_
-to_pyro_module_(model)
+#from pyro.nn.module import to_pyro_module_
+#to_pyro_module_(model)
 model.requires_grad_(False)
 #
 
@@ -572,10 +619,11 @@ if __name__ == '__main__':
     from scipy.stats import norm
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     torch.set_default_dtype(torch.float64)
-    ss = pickle.load(open('transform.pkl','rb'))
-    samples = model.sample(num_samples=10000).detach().numpy()
+    numdatasamples = 1000000
+    ss = pkl.load(open(f'transform_nsamples{numdatasamples}.pkl','rb'))
+    samples = pkl.load(open(f'fullpop_nsamples{numdatasamples}.pkl', 'rb')) #model.sample(num_samples=10000).detach().numpy()
 
-    cmd_logp, xx_cmd, yy_cmd = make_cmdlogp_plot.make()
+    #cmd_logp, xx_cmd, yy_cmd = make_cmdlogp_plot.make()
 
     import time
     t = time.time()
@@ -629,14 +677,14 @@ if __name__ == '__main__':
         chat = [color + rs.normal()*sigmacobs for color, sigmacobs in zip(c, sigmac)] #(scale=sigmac)
         varpihat = 1/distance + rs.normal()*sigmavarpi #(scale=sigmavarpi)
         mhat = [absm + 5*np.log10(distance*1e3/10.) + rs.normal()*sigmamobs for absm, sigmamobs in zip(M, sigmam)] #(scale=sigmam)
-
+        print('True A is: ', A)
         #theta_0 for optimization [lnA, c, M, lnd]
         theta_0 = [torch.log(torch.from_numpy(np.array(A))),
                              torch.from_numpy(np.array(c_true)),
                              torch.from_numpy(np.array(M_true)),
                    torch.log(torch.from_numpy(np.array(distance)))]
 
-        res, sigma_hat = optimize_model(theta_0, chat, mhat, varpihat, sigmac, sigmam, sigmavarpi, dustco_c, dustco_m, ss)
+        res, sigma_hat = optimize_model(theta_0, chat, mhat, varpihat, sigmac, sigmam, sigmavarpi, dustco_c, dustco_m, ss, ind)
         theta_hat = res.x
         #theta_0 for mcmc []
         nwalkers=2
