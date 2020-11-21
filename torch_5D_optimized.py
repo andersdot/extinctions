@@ -39,7 +39,8 @@ from torch.distributions.utils import broadcast_all
 
 import corner
 
-from pyro_torch_model_5D_linearA import gen_model, ObjectiveOpt, plot_marginal, plot_truth, plot_approx_posterior, add_cmd, optimize_model
+#from pyro_torch_model_5D_linearA import gen_model, ObjectiveOpt, plot_marginal, plot_truth, plot_approx_posterior, add_cmd, optimize_model
+from pyro_numerical_derivative import gen_model, ObjectiveOpt, plot_marginal, plot_truth, plot_approx_posterior, add_cmd, optimize_model, numerical_hessian 
 
 
 def plot1d():
@@ -210,6 +211,7 @@ if __name__ == '__main__':
            'M': np.zeros(nstars), 
            'c': np.zeros((nstars, len(color_keys))),
            'cov':np.zeros((nstars, len(color_keys) + len(absmag_keys) + 2, len(color_keys) + len(absmag_keys) + 2)),
+           'hes':np.zeros((nstars, len(color_keys) + len(absmag_keys) + 2, len(color_keys) + len(absmag_keys) + 2)),
            'res':[]}
 
     for ind in range(nstars): #[3,  5,   7,   8,  11,  12,  13]: #4 range(nstars): # range(len(teststars['AV'])):
@@ -270,15 +272,23 @@ if __name__ == '__main__':
         print('###############################################################')
         print(f'theta_0 is: {theta_0}')
         print(f'A true is: {A}')
+        
+        #hessian = numerical_hessian(np.hstack([t.cpu().detach().numpy().astype(np.float64) for t in theta_hat]), chat, mhat, varpihat, sigmac, sigmam, sigmavarpi, dustco_c, dustco_m, ss)
         res, sigma_hat = optimize_model(theta_0, chat, mhat, varpihat, sigmac, sigmam, sigmavarpi, dustco_c, dustco_m, ss, ind)
         theta_hat = res.x
+        hessian = numerical_hessian(np.hstack(theta_hat), chat, mhat, varpihat, sigmac, sigmam, sigmavarpi, dustco_c, dustco_m, ss)
+        sigma_hat_num = np.linalg.inv(-1.*hessian)
+        print(f'A true is {A:.4f}, A infered is {theta_hat[0]:.4f}, difference is {A - theta_hat[0]:.4f}')
+        print(f'sigma A pytorch is {np.sqrt(sigma_hat[0,0]):.3f} and sigma A numerical is {np.sqrt(sigma_hat_num[0,0]):.3f}')
+        #hessian = (theta_hat, chat, mhat, varpihat, sigmac, sigmam, sigmavarpi, dustco_c, dustco_m, ss)
         arr['res'].append(res)
         #import pdb; pdb.set_trace()
         arr['A'][ind] = theta_hat[0] #np.exp(theta_hat[0])
         arr['d'][ind] = theta_hat[-1] #np.exp(theta_hat[-1])
         arr['c'][ind,:] = theta_hat[1:1+len(color_keys)]
         arr['M'][ind] = theta_hat[-2]
-        arr['cov'][ind, :,:] = sigma_hat
+        arr['cov'][ind, :,:] = sigma_hat_num
+        arr['hes'][ind, :, :] = hessian
 
 
         theta_true = [A] + list(c_true) + list(M_true) + [distance]

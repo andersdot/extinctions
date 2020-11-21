@@ -267,7 +267,7 @@ if __name__ =='__main__':
 
 
 
-
+    """
     for i in range(10):
 
         names = ['lnp', 'A', 'gradA', 'sigA', 'c1', 'gradc1', 'sigc1', 'c2', 'gradc2', 'sigc2', 'c3', 'gradc3', 'sigc3', 'c4', 'gradc4', 'sigc4', 'M', 'gradM', 'sigM', 'd', 'gradd', 'sigd']
@@ -289,7 +289,7 @@ if __name__ =='__main__':
         grads = [n for n in names if 'grad' in n]
         sigs = [n for n in names if 'sig' in n]
 
-        """
+        
         plt.clf()
         fig, axesall =plt.subplots(len(grads)*2, 2, figsize=(10, 20))
         axes = axesall[[1,3,5,7,9,11,13]]
@@ -354,7 +354,7 @@ if __name__ =='__main__':
         plt.tight_layout()
         fig.savefig(f'gradient_param_{i}.pdf', rasterized=True)
         plt.close(fig)
-        """
+        
 
 
         plt.clf()
@@ -435,3 +435,4 @@ if __name__ =='__main__':
         plt.tight_layout()
         fig.savefig(f'like_param_{i}.pdf', rasterized=True)
         plt.close(fig)
+        """

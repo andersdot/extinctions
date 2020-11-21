@@ -79,7 +79,7 @@ class PyTorchObjective(object):
         if self.is_new(x):
             self.cache(x)
         parms = np.concatenate([param.data.numpy().ravel() for param in self.f.parameters()], axis=0)
-        print(f'{parms[0].item():8.2f}', f'{self.f.logjoint():8.2f}')
+        #print(f'{parms[0].item():8.2f}', f'{self.f.logjoint():8.2f}')
         return self.cached_f
 
     def jac(self, x):
